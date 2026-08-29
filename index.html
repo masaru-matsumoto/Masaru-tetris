@@ -129,72 +129,119 @@ function startBGM(){
 
   stopBGM();
 
-  if(!sound)return;
+  if(!sound || !ac)return;
+
+  bgmStep=0;
 
   bgmTimer=setInterval(()=>{
 
-    if(!paused&&!over){
+    if(
+      sound &&
+      !paused &&
+      !over
+    ){
 
-      tone(
-        melody[bgmStep % melody.length],
-        .14,
-        "triangle",
-        .035
+      const note=
+        melody[
+          bgmStep %
+          melody.length
+        ];
+
+      const osc=
+        ac.createOscillator();
+
+      const gain=
+        ac.createGain();
+
+      osc.type="square";
+      osc.frequency.value=note;
+
+      gain.gain.setValueAtTime(
+        0.045,
+        ac.currentTime
       );
 
-      if(bgmStep % 4===0){
+      gain.gain.exponentialRampToValueAtTime(
+        0.001,
+        ac.currentTime+0.13
+      );
 
-        tone(
-          65.4,
-          .12,
-          "square",
-          .015
-        );
+      osc.connect(gain);
+      gain.connect(ac.destination);
 
-      }
+      osc.start();
+      osc.stop(
+        ac.currentTime+0.13
+      );
 
       bgmStep++;
     }
 
-  },190);
+  },210);
 }
 function stopBGM(){if(bgmTimer){clearInterval(bgmTimer);bgmTimer=null}}
 async function toggleSound(){
 
-  sound=!sound;
-
-  const b=
+  const button=
     document.getElementById("soundBtn");
+
+  if(!ac){
+
+    ac=new(
+      window.AudioContext ||
+      window.webkitAudioContext
+    )();
+
+  }
+
+  try{
+
+    await ac.resume();
+
+  }catch(e){
+    console.log(e);
+  }
+
+  sound=!sound;
 
   if(sound){
 
-    if(!ac){
-      ac=new(
-        window.AudioContext ||
-        window.webkitAudioContext
-      )();
-    }
+    button.textContent="🔊 SOUND";
+    button.classList.add("on");
 
-    if(ac.state==="suspended"){
-      await ac.resume();
-    }
+    /* 起動確認音 */
+    const osc=ac.createOscillator();
+    const gain=ac.createGain();
 
-    b.textContent="🔊 SOUND";
-    b.classList.add("on");
+    osc.type="square";
+    osc.frequency.value=660;
 
-    tone(660,.12,"square",.07);
+    gain.gain.setValueAtTime(
+      0.12,
+      ac.currentTime
+    );
+
+    gain.gain.exponentialRampToValueAtTime(
+      0.001,
+      ac.currentTime+0.18
+    );
+
+    osc.connect(gain);
+    gain.connect(ac.destination);
+
+    osc.start();
+    osc.stop(ac.currentTime+0.18);
 
     setTimeout(()=>{
       startBGM();
-    },150);
+    },250);
 
   }else{
 
-    b.textContent="🔇 SOUND";
-    b.classList.remove("on");
+    button.textContent="🔇 SOUND";
+    button.classList.remove("on");
 
     stopBGM();
-
   }
 }
 
@@ -244,41 +291,36 @@ function popup(main,sub="",points="",special=false){
  fx.appendChild(p);setTimeout(()=>p.remove(),1100);
 }
 function bump(){scoreEl.classList.remove("score-bump");void scoreEl.offsetWidth;scoreEl.classList.add("score-bump")}
-async function clearLines(){
+function clearLines(){
 
-  let rows=[];
+  const rows=[];
 
   for(let y=R-1;y>=0;y--){
-    if(board[y].every(Boolean)) rows.push(y);
+    if(board[y].every(Boolean)){
+      rows.push(y);
+    }
   }
 
-  if(!rows.length){
+  if(rows.length===0){
     combo=-1;
     return;
   }
 
-  // 揃ったラインを即座に白く光らせる
-  rows.forEach(y=>{
-    ctx.fillStyle="#fff";
-    ctx.fillRect(0,y*B,300,B);
-  });
-
-  animate(rows.length===4 ? "shake" : "flash");
-
-  // 演出だけ少し見せる
-  await new Promise(resolve=>setTimeout(resolve,120));
-
-  // 演出後、必ずここで消してから次ブロックへ
-  rows.sort((a,b)=>b-a).forEach(y=>{
-    board.splice(y,1);
-  });
-
-  for(let i=0;i<rows.length;i++){
-    board.unshift(Array(C).fill(null));
-  }
-
   const n=rows.length;
   const oldLevel=level;
+
+  /* ★重要
+     全ラインを同じ処理内で一気に削除する
+  */
+  rows
+    .sort((a,b)=>b-a)
+    .forEach(y=>{
+      board.splice(y,1);
+    });
+
+  for(let i=0;i<n;i++){
+    board.unshift(Array(C).fill(null));
+  }
 
   const base=[0,100,300,500,800][n]*level;
 
@@ -293,8 +335,10 @@ async function clearLines(){
 
   score+=total;
   lines+=n;
-
   level=Math.floor(lines/10)+1;
+
+  /* 消去後すぐ描画 */
+  draw();
 
   if(n===4){
 
@@ -306,12 +350,15 @@ async function clearLines(){
     );
 
     sfx("michiko");
-
     vibrate([70,35,100,35,160]);
 
-    animate("shake");
+    animate("flash");
 
-  }else{
+    setTimeout(()=>{
+      animate("shake");
+    },100);
+
+  } else {
 
     const names=[
       "",
@@ -322,7 +369,9 @@ async function clearLines(){
 
     popup(
       names[n],
-      combo>0 ? `${combo+1} COMBO` : "",
+      combo>0
+        ? `${combo+1} COMBO`
+        : "",
       `+${total}`
     );
 
@@ -333,6 +382,8 @@ async function clearLines(){
         ? 35
         : [45,25,70]
     );
+
+    animate("flash");
   }
 
   if(level>oldLevel){
@@ -345,7 +396,6 @@ async function clearLines(){
       );
 
       sfx("level");
-
       vibrate([50,30,80]);
 
     },500);
@@ -353,11 +403,10 @@ async function clearLines(){
 
   updateStats();
   bump();
-  draw();
 }
-async function lock(){
+function lock(){
   merge();
-  await clearLines();
+  clearLines();
   spawn();
   draw();
 }
